@@ -90,60 +90,6 @@ Parameters:
       the creation of new subnets. These zones must have the available status.
     Default: ''
 
-  EBSVolumeSizeForECS:
-    Type: Number
-    Description: >
-      Optional - Specifies the Size in GBs, of the newly created Amazon
-      Elastic Block Store (Amazon EBS) volume for ECS container storage
-    Default: 0
-
-  EBSVolumeTypeForECS:
-    Type: String
-    Description: Specifies the Type of (Amazon EBS) volume for ECS container storage. Ignored if not using an EBS ECS volume.
-    Default: 'gp2'
-    AllowedValues:
-      - standard
-      - io1
-      - gp2
-      - sc1
-      - st1
-    ConstraintDescription: Must be a valid EC2 volume type.
-
-  EBSVolumeSizeForData:
-    Type: Number
-    Description: >
-      Optional - Specifies the Size in GBs, of the newly created Amazon
-      Elastic Block Store (Amazon EBS) volume for data storage
-    Default: 0
-
-  EBSVolumeTypeForData:
-    Type: String
-    Description: Specifies the Type of (Amazon EBS) volume for data storage. Ignored if not using an EBS data volume.
-    Default: 'gp2'
-    AllowedValues:
-      - standard
-      - io1
-      - gp2
-      - sc1
-      - st1
-    ConstraintDescription: Must be a valid EC2 volume type.
-
-  EFSOn:
-    Type: String
-    Description: >
-      Switches on EFS use in place of EBS for OMERO storage. Will override
-      an EBS Volume for Data, if also set.
-    Default: 'EFS Off'
-    AllowedValues:
-      - 'EFS On'
-      - 'EFS Off'
-    ConstraintDescription: Must be On or Off.
-
-  DeviceNameForData:
-    Type: String
-    Description: Specifies the device mapping for the Volume for data storage. Ignored if not using an EBS data volume.
-    Default: '/dev/sdm'
-
   S3Bucket:
     Type: String
     Description: Optional - S3 Bucket from which to hydrate an archive
@@ -183,19 +129,6 @@ Conditions:
     !Not [!Equals [!Ref EcsEndpoint, '']]
   CreateNewSecurityGroup:
     !Equals [!Ref SecurityGroupId, '']
-  CreateEBSVolumeForECS: !And
-    - !Not [!Equals [!Ref EBSVolumeSizeForECS, '0']]
-    - !Not [!Equals [!Ref EBSVolumeTypeForECS, '']]
-  SetDataFSToEFS:
-    !Equals [!Ref EFSOn, 'EFS On']
-  CreateEBSVolumeForData: !And
-    - !Not [!Equals [!Ref EBSVolumeSizeForData, '0']]
-    - !Not [!Equals [!Ref EBSVolumeTypeForData, '']]
-    - !Not [!Equals [!Ref DeviceNameForData, '']]
-    - !Not [ Condition: SetDataFSToEFS ]
-  CreateEBSVolumes: !Or
-    - Condition: CreateEBSVolumeForECS
-    - Condition: CreateEBSVolumeForData
 
 Resources:
 
@@ -235,7 +168,6 @@ Resources:
 
   OMEROEFS:
     Type: AWS::EFS::FileSystem
-    Condition: SetDataFSToEFS
     Properties:
       FileSystemTags:
         - !If
@@ -246,7 +178,6 @@ Resources:
 
   OMEROEFSMountTarget0:
     Type: AWS::EFS::MountTarget
-    Condition: SetDataFSToEFS
     Properties:
       FileSystemId: !Ref OMEROEFS
       SubnetId: !Select [ 0, !Ref SubnetIds ]
@@ -255,7 +186,6 @@ Resources:
 
   OMEROEFSMountTarget1:
     Type: AWS::EFS::MountTarget
-    Condition: SetDataFSToEFS
     Properties:
       FileSystemId: !Ref OMEROEFS
       SubnetId: !Select [ 1, !Ref SubnetIds ]
@@ -264,7 +194,6 @@ Resources:
 
   # OMEROEFSMountTarget2:
   #   Type: AWS::EFS::MountTarget
-  #   Condition: SetDataFSToEFS
   #   Properties:
   #     FileSystemId: !Ref OMEROEFS
   #     SubnetId: !Select [ 2, !Ref SubnetIds ]
@@ -273,7 +202,6 @@ Resources:
   #
   # OMEROEFSMountTarget3:
   #   Type: AWS::EFS::MountTarget
-  #   Condition: SetDataFSToEFS
   #   Properties:
   #     FileSystemId: !Ref OMEROEFS
   #     SubnetId: !Select [ 3, !Ref SubnetIds ]
@@ -485,6 +413,8 @@ Resources:
               Value: !Ref S3Bucket
             - Name: CONFIG_omero_db_host
               Value: !GetAtt PostgresECSLoadBalancer.DNSName
+          Command:
+            - [""]
 
   OmeroService:
     Type: AWS::ECS::Service
@@ -615,6 +545,12 @@ Resources:
               Value: "^/(?!webadmin|webclient/(action|logout|annotate_(file|tags|comment|rating|map)|script_ui|ome_tiff|figure_script)|webgateway/(archived_files|download_as))"
             - Name: OMEROHOST
               Value: !GetAtt OmeroECSLoadBalancer.DNSName
+            - Name: CONFIG_omero_web_apps
+              Value: "omero_iviewer"
+            - Name: CONFIG_omero_web_open__with
+              Value: '[\"omero_iviewer\",\"omero_iviewer_index\",{\"supported_objects\":[\"image\"],\"script_url\":\"omero_iviewer/openwith.js\"}]'
+          Command:
+            - ["/opt/omero/web/venv/bin/pip", "install", "omero-iviewer"]
         - Name: nginx
           Cpu: 250
           Essential: true
@@ -919,24 +855,6 @@ Resources:
       KeyName: !Ref KeyName
       SecurityGroups:
         - !If [ CreateNewSecurityGroup, !Ref EcsSecurityGroup, !Ref SecurityGroupId ]
-      BlockDeviceMappings: !If
-        - CreateEBSVolumes
-        -
-          - !If
-            - CreateEBSVolumeForECS
-            - DeviceName: /dev/xvdcz
-              Ebs:
-               VolumeSize: !Ref EBSVolumeSizeForECS
-               VolumeType: !Ref EBSVolumeTypeForECS
-            - !Ref AWS::NoValue
-          - !If
-            - CreateEBSVolumeForData
-            - DeviceName: !Ref DeviceNameForData
-              Ebs:
-               VolumeSize: !Ref EBSVolumeSizeForData
-               VolumeType: !Ref EBSVolumeTypeForData
-            - !Ref AWS::NoValue
-        - !Ref AWS::NoValue
       UserData:
         Fn::Base64: !Join
           - ''
@@ -947,32 +865,23 @@ Resources:
               yum install -y aws-cfn-bootstrap nfs-utils
               # Mount Volume
               mkdir /mnt/OMERO_DATA
-            - !If
-              - SetDataFSToEFS
-              - !Sub |
-                # Mount EFS Volume
-                echo "${OMEROEFS}.efs.${AWS::Region}.amazonaws.com:/ /mnt/OMERO_DATA nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 2" >> /etc/fstab
-                WAIT_TIME=2
-                until mount /mnt/OMERO_DATA || [ $WAIT_TIME -eq 512 ]; do
-                  echo "sleeping $WAIT_TIME"
-                  sleep $WAIT_TIME
-                  WAIT_TIME=$[WAIT_TIME*2]
-                done
-                if [ $WAIT_TIME -eq 512 ]; then
-                  echo "Sending failure signal"
-                  /opt/aws/bin/cfn-signal -s false --stack ${AWS::StackName} --resource EcsInstanceAsg --region ${AWS::Region}
-                  exit 1
-                fi
-                # Docker must be restarted or it can not see the NFS mount
-                service docker restart
-              - !Ref AWS::NoValue
-            - !If
-              - CreateEBSVolumeForData
-              - !Sub |
-                mkfs -t ext4 ${DeviceNameForData}
-                echo "${DeviceNameForData} /mnt/OMERO_DATA ext4 defaults,nofail 0 2" >> /etc/fstab
-                mount /mnt/OMERO_DATA
-              - !Ref AWS::NoValue
+            - !Sub |
+              # Mount EFS Volume
+              echo "${OMEROEFS}.efs.${AWS::Region}.amazonaws.com:/ /mnt/OMERO_DATA nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 2" >> /etc/fstab
+              WAIT_TIME=2
+              until mount /mnt/OMERO_DATA || [ $WAIT_TIME -eq 512 ]; do
+                echo "sleeping $WAIT_TIME"
+                sleep $WAIT_TIME
+                WAIT_TIME=$[WAIT_TIME*2]
+              done
+              if [ $WAIT_TIME -eq 512 ]; then
+                echo "Sending failure signal"
+                /opt/aws/bin/cfn-signal -s false --stack ${AWS::StackName} --resource EcsInstanceAsg --region ${AWS::Region}
+                exit 1
+              fi
+              # Docker must be restarted or it can not see the NFS mount
+              service docker restart
+            - !Ref AWS::NoValue
             - !Sub |
               # Configure ECS
               mkdir -p /etc/ecs
@@ -981,7 +890,6 @@ Resources:
 
   EcsInstanceAsg:
     Type: AWS::AutoScaling::AutoScalingGroup
-    #DependsOn: !If [ SetDataFSToEFS, OMEROEFSMountTarget, !Ref AWS::NoValue ]
     Properties:
       VPCZoneIdentifier: !Ref SubnetIds
       LaunchConfigurationName: !Ref EcsInstanceLc
@@ -1011,9 +919,3 @@ Outputs:
     Value: !GetAtt RedisECSLoadBalancer.DNSName
   WebDNSName:
     Value: !GetAtt WebECSALB.DNSName
-
-#   EcsInstanceAsgName:
-#     Description: Auto Scaling Group Name for ECS Instances
-#     Value: !Ref EcsInstanceAsg
-#   taskdef:
-#     Value: !Ref TaskDefinition
