@@ -413,8 +413,6 @@ Resources:
               Value: !Ref S3Bucket
             - Name: CONFIG_omero_db_host
               Value: !GetAtt PostgresECSLoadBalancer.DNSName
-          Command:
-            - [""]
 
   OmeroService:
     Type: AWS::ECS::Service
@@ -550,7 +548,9 @@ Resources:
             - Name: CONFIG_omero_web_open__with
               Value: '[\"omero_iviewer\",\"omero_iviewer_index\",{\"supported_objects\":[\"image\"],\"script_url\":\"omero_iviewer/openwith.js\"}]'
           Command:
-            - ["/opt/omero/web/venv/bin/pip", "install", "omero-iviewer"]
+            - "/opt/omero/web/venv/bin/pip"
+            - "install"
+            - "omero-iviewer"
         - Name: nginx
           Cpu: 250
           Essential: true
