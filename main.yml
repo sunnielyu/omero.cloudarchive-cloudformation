@@ -543,14 +543,6 @@ Resources:
               Value: "^/(?!webadmin|webclient/(action|logout|annotate_(file|tags|comment|rating|map)|script_ui|ome_tiff|figure_script)|webgateway/(archived_files|download_as))"
             - Name: OMEROHOST
               Value: !GetAtt OmeroECSLoadBalancer.DNSName
-            - Name: CONFIG_omero_web_apps
-              Value: "omero_iviewer"
-            - Name: CONFIG_omero_web_open__with
-              Value: '[\"omero_iviewer\",\"omero_iviewer_index\",{\"supported_objects\":[\"image\"],\"script_url\":\"omero_iviewer/openwith.js\"}]'
-          Command:
-            - "/opt/omero/web/venv/bin/pip"
-            - "install"
-            - "omero-iviewer"
         - Name: nginx
           Cpu: 250
           Essential: true
@@ -868,20 +860,9 @@ Resources:
             - !Sub |
               # Mount EFS Volume
               echo "${OMEROEFS}.efs.${AWS::Region}.amazonaws.com:/ /mnt/OMERO_DATA nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 2" >> /etc/fstab
-              WAIT_TIME=2
-              until mount /mnt/OMERO_DATA || [ $WAIT_TIME -eq 512 ]; do
-                echo "sleeping $WAIT_TIME"
-                sleep $WAIT_TIME
-                WAIT_TIME=$[WAIT_TIME*2]
-              done
-              if [ $WAIT_TIME -eq 512 ]; then
-                echo "Sending failure signal"
-                /opt/aws/bin/cfn-signal -s false --stack ${AWS::StackName} --resource EcsInstanceAsg --region ${AWS::Region}
-                exit 1
-              fi
+              mount -a
               # Docker must be restarted or it can not see the NFS mount
               service docker restart
-            - !Ref AWS::NoValue
             - !Sub |
               # Configure ECS
               mkdir -p /etc/ecs
